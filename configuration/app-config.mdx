@@ -1,0 +1,156 @@
+---
+title: "App Registration and Configuration Field Reference"
+description: "Full reference for all app registration fields — name, auth type, manifest, webhook config, auth config, headers, and AI usage instructions."
+---
+
+When you register an app with Orceum, you submit a JSON object that defines how the platform should present your app to users, authenticate requests on your behalf, deliver events to your server, and guide the Orca AI during action execution. This page documents every configurable field.
+
+## Complete config object
+
+```json
+{
+  "config": {
+    "webhook_config": {
+      "webhook_url": "https://todo.yourapp.com/webhooks/orceum",
+      "webhook_secret": "whs_your_secret",
+      "events_enabled": true
+    },
+    "installation_webhook_url": "https://todo.yourapp.com/webhooks/lifecycle",
+
+    "auth_config": {
+      "auth_header_key": "Authorization",
+      "authentication_scheme": "Bearer",
+      "api_key_location": "HEADER"
+    },
+    "oauth_config": { "...": "..." },
+
+    "api_key_instructions": "Find your API key at Settings → API in your dashboard",
+    "api_key_format_hint": "Starts with sk- and is 40 characters long",
+
+    "additional_headers": {
+      "X-App-Version": "2.0",
+      "X-Region": "us-east-1"
+    },
+    "additional_query_params": {
+      "format": "json"
+    },
+
+    "additional_usage_info": "When listing tasks, always filter by the installation_id unless the user asks for all tasks. Tasks marked urgent should be flagged in the response."
+  }
+}
+```
+
+## Webhook config
+
+<ParamField body="webhook_config.webhook_url" type="string">
+  The URL where Orceum delivers events you push via `POST /v1/apps/{app_id}/events`. This endpoint on your server receives event delivery confirmations.
+</ParamField>
+
+<ParamField body="webhook_config.webhook_secret" type="string">
+  A `whs_*` secret you generate. Orceum uses this to sign lifecycle webhook payloads it sends to your `installation_webhook_url`. See [Lifecycle Webhooks](/building-apps/lifecycle-webhooks) for signature verification.
+</ParamField>
+
+<ParamField body="webhook_config.events_enabled" type="boolean" default="false">
+  Set to `true` to enable your app to push events into Orceum via the events endpoint.
+</ParamField>
+
+<ParamField body="installation_webhook_url" type="string">
+  The URL where Orceum delivers `INSTALLED` and `UNINSTALLED` lifecycle events. This may be the same as `webhook_url` or a separate endpoint.
+</ParamField>
+
+## Auth config
+
+These fields apply when `auth_type` is `API_KEY` and control how Orceum attaches the user's API key to each action request:
+
+<ParamField body="auth_config.auth_header_key" type="string" default="X-API-KEY">
+  The HTTP header name used to send the API key.
+</ParamField>
+
+<ParamField body="auth_config.authentication_scheme" type="string">
+  Optional prefix placed before the key value. Set to `"Bearer"` to produce `Authorization: Bearer <key>`. Leave empty to send the raw value with no prefix.
+</ParamField>
+
+<ParamField body="auth_config.api_key_location" type="string" default="HEADER">
+  Where the API key is attached to outgoing requests:
+
+  - `HEADER` — sent as an HTTP request header (default)
+  - `QUERY` — appended to the request URL as a query parameter
+</ParamField>
+
+For OAuth-based authentication, see [OAuth Configuration](/configuration/oauth).
+
+## Installation guidance
+
+These fields are shown to users in the installation UI when they are prompted to enter their API key:
+
+<ParamField body="api_key_instructions" type="string">
+  Plain-text instructions telling users where to find their API key.
+
+  Example: `"Find your API key at Settings → API in your dashboard. Requires Admin role."`
+</ParamField>
+
+<ParamField body="api_key_format_hint" type="string">
+  A hint about the expected key format. Helps users catch copy-paste mistakes before submitting.
+
+  Example: `"Starts with sk- and is exactly 51 characters long"`
+</ParamField>
+
+## Additional headers and query params
+
+Static headers and query parameters added to **every** action call Orceum makes to your app, in addition to any credential headers:
+
+<ParamField body="additional_headers" type="object">
+  Key-value pairs sent as HTTP headers on every request. Useful for service versioning, region routing, or internal tracing.
+
+  ```json
+  {
+    "X-API-Version": "2",
+    "X-Service-Region": "eu-west-1",
+    "X-Client": "orceum"
+  }
+  ```
+</ParamField>
+
+<ParamField body="additional_query_params" type="object">
+  Key-value pairs appended to the request URL as query parameters on every action call.
+
+  ```json
+  {
+    "format": "json",
+    "api_version": "2024-01"
+  }
+  ```
+</ParamField>
+
+## AI usage instructions
+
+<ParamField body="additional_usage_info" type="string">
+  Free-form text injected directly into the Orca AI executor prompt when running actions for your app. Use this to communicate app-specific behaviors, constraints, or conventions that cannot be expressed in individual action descriptions.
+
+  **Examples:**
+  - `"Always include the user's timezone when creating calendar events."`
+  - `"Task IDs returned by list_tasks expire after 30 minutes — don't cache them."`
+  - `"Every API response includes a cursor field — use it for pagination rather than page offsets."`
+</ParamField>
+
+<Tip>
+  `additional_usage_info` is most valuable for cross-cutting concerns: pagination patterns, field conventions, rate limit awareness, or any runtime behavior that would be redundant to repeat in every action description.
+</Tip>
+
+## Updating config
+
+PATCH your app at any time to update any `config` fields. Changes take effect immediately for new action calls:
+
+```bash
+curl -X PATCH https://api.orceum.com/v1/apps/{app_id} \
+  -H "Authorization: Bearer YOUR_ORCEUM_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "config": {
+      "additional_usage_info": "New instructions for Orca AI.",
+      "webhook_config": {
+        "events_enabled": true
+      }
+    }
+  }'
+```

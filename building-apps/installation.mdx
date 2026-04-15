@@ -1,0 +1,163 @@
+---
+title: "How the Installation Flow Works"
+description: "Understand how users install your app, what credential steps each auth type requires, and what installation states your app can be in."
+---
+
+An **installation** is the link between a user account and your app. Orceum tracks its state, stores credentials securely, and uses it to route action calls on behalf of the user. Each user gets their own installation — you can serve many users from a single registered app.
+
+---
+
+## The install endpoint
+
+Installations are created programmatically via the Orceum SDK or directly by the platform when a user clicks "Install" in the UI.
+
+```bash
+curl -X POST https://api.orceum.com/v1/apps/{app_id}/install \
+  -H "Authorization: Bearer USER_ORCEUM_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{}'
+```
+
+### Response
+
+```json
+{
+  "installation_id": "inst_abc123",
+  "app_id": "app_a1b2c3d4",
+  "status": "PENDING",
+  "next_action": "NONE",
+  "created_at": "2024-01-15T12:00:00Z"
+}
+```
+
+---
+
+## `next_action` — what happens after install
+
+The `next_action` field in the response tells the Orceum frontend what to do next:
+
+| `next_action` | Meaning | What happens |
+|---------------|---------|-------------|
+| `NONE` | Installation is complete | App is immediately ready to use |
+| `COLLECT_API_KEY` | API key required | Frontend shows the API key input form |
+| `OAUTH` | OAuth consent required | Frontend redirects user to OAuth provider |
+
+---
+
+## API key flow
+
+When `next_action` is `COLLECT_API_KEY`, the user must submit their API key before the installation becomes active:
+
+```bash
+curl -X POST https://api.orceum.com/v1/apps/{app_id}/installations/{installation_id}/api-key \
+  -H "Authorization: Bearer USER_ORCEUM_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "api_key": "sk-user-provided-key"
+  }'
+```
+
+Orceum will:
+1. Validate the key meets minimum requirements (≥8 chars, no spaces)
+2. Encrypt it with Fernet symmetric encryption
+3. Transition the installation to `ACTIVE`
+
+### Providing API key instructions
+
+In your app's `config`, you can guide users during this step:
+
+```json
+{
+  "config": {
+    "api_key_instructions": "Find your API key at Settings → API in your dashboard",
+    "api_key_format_hint": "Starts with sk- and is 40 characters long"
+  }
+}
+```
+
+---
+
+## OAuth flow
+
+When `next_action` is `OAUTH`, Orceum manages the full Authorization Code flow:
+
+<Steps>
+  <Step title="Orceum builds the authorization URL">
+    Using your `oauth_config.authorization_url`, `client_id`, `scopes`, and `state` parameter.
+  </Step>
+  <Step title="User is redirected to consent screen">
+    Orceum redirects to your OAuth provider's authorization endpoint.
+  </Step>
+  <Step title="User grants access">
+    The provider redirects to Orceum's callback URL:
+    ```
+    https://api.orceum.com/v1/apps/{app_id}/oauth/callback
+    ```
+  </Step>
+  <Step title="Orceum exchanges the code">
+    Makes the token exchange request using `token_url`, `client_id`, and `client_secret`.
+  </Step>
+  <Step title="Tokens stored and installation activated">
+    Access and refresh tokens are encrypted and stored. Installation status → `ACTIVE`.
+  </Step>
+</Steps>
+
+<Warning>
+You must register `https://api.orceum.com/v1/apps/{your_app_id}/oauth/callback` as an allowed redirect URI with your OAuth provider, or the callback will be rejected.
+</Warning>
+
+---
+
+## Installation states
+
+An installation transitions through these states:
+
+| State | Description |
+|-------|-------------|
+| `PENDING` | Just created — awaiting credential submission |
+| `ACTIVE` | Credentials validated — app can execute actions |
+| `SUSPENDED` | Temporarily disabled (admin action or repeated errors) |
+| `UNINSTALLED` | User removed the app — credentials cleared, tokens revoked |
+| `REAUTH_REQUIRED` | OAuth tokens expired/invalid — user must re-authenticate |
+
+### State transitions
+
+```
+PENDING
+  ├─→ ACTIVE          (credentials submitted and validated)
+  └─→ UNINSTALLED     (user cancels installation)
+
+ACTIVE
+  ├─→ SUSPENDED       (admin suspends or repeated failures)
+  ├─→ UNINSTALLED     (user removes the app)
+  └─→ REAUTH_REQUIRED (token refresh fails)
+
+REAUTH_REQUIRED
+  └─→ ACTIVE          (user re-authenticates)
+
+SUSPENDED
+  └─→ ACTIVE          (admin re-enables)
+```
+
+---
+
+## Re-authentication
+
+If OAuth token refresh fails, the installation enters `REAUTH_REQUIRED`. Generate a re-auth link the user can click to go through the OAuth flow again:
+
+```bash
+curl -X POST https://api.orceum.com/v1/apps/{app_id}/installations/{installation_id}/reauth \
+  -H "Authorization: Bearer USER_ORCEUM_TOKEN"
+```
+
+```json
+{
+  "reauth_url": "https://api.orceum.com/v1/apps/{app_id}/oauth/start?state=..."
+}
+```
+
+---
+
+## Lifecycle webhooks
+
+When a user installs or uninstalls your app, Orceum notifies your `installation_webhook_url` with a signed payload. See [Lifecycle Webhooks](/building-apps/lifecycle-webhooks) for the full payload schema and verification guide.

@@ -1,0 +1,260 @@
+---
+title: "Build an MCP App and Register It with Orceum"
+description: "Step-by-step guide to creating a FastMCP server, registering it as an MCP app on Orceum, and letting the platform auto-discover tools via list_tools()."
+---
+
+This guide walks you through building a GitHub MCP app using FastMCP and registering it with Orceum using OAuth authentication. Unlike native apps — where you define actions manually in a manifest — MCP apps expose tools that Orceum discovers automatically via `list_tools()`.
+
+## What we're building
+
+An MCP server that:
+- Exposes GitHub tools (`create_issue`, `list_issues`, `search_repos`)
+- Uses GitHub OAuth for per-user authentication
+- Has its tools auto-discovered by Orceum's MCP integration
+
+---
+
+## Key differences from native apps
+
+| Aspect | Native | MCP |
+|--------|--------|-----|
+| Registration endpoint | `POST /v1/apps/` | `POST /v1/apps/mcp` |
+| Actions defined | In manifest JSON | Via `list_tools()` |
+| Execution | `POST base_url + endpoint` | `call_tool(name, args)` |
+| Auth support | `NONE`, `API_KEY`, `OAUTH` | `NONE`, `OAUTH` only |
+| Manifest updates | Manual `PATCH` | `POST regenerate-manifest` |
+
+---
+
+<Steps>
+
+<Step title="Build your MCP server">
+
+Install the dependencies:
+
+```bash
+pip install fastmcp httpx
+```
+
+Write your tool server. FastMCP turns annotated Python functions into MCP tools — the docstring becomes the tool description Orceum reads when deciding which tool to call:
+
+```python
+# server.py
+from fastmcp import FastMCP
+import httpx
+import os
+
+mcp = FastMCP("GitHub Tools")
+
+GITHUB_API = "https://api.github.com"
+
+
+@mcp.tool()
+async def create_issue(
+    repo: str,
+    title: str,
+    body: str = "",
+    labels: list[str] = []
+) -> dict:
+    """
+    Create a new GitHub issue in a repository.
+
+    Use when the user wants to report a bug, request a feature, or track work
+    in a specific GitHub repository.
+
+    Args:
+        repo: Repository in 'owner/repo' format, e.g. 'acme/todo-app'
+        title: Short, descriptive issue title
+        body: Detailed description of the issue (optional)
+        labels: List of label names to apply, e.g. ['bug', 'high-priority']
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{GITHUB_API}/repos/{repo}/issues",
+            json={"title": title, "body": body, "labels": labels},
+            headers={"Authorization": f"Bearer {get_token()}"}
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return {
+            "issue_number": data["number"],
+            "url": data["html_url"],
+            "title": data["title"],
+            "status": "created"
+        }
+
+
+@mcp.tool()
+async def list_issues(
+    repo: str,
+    state: str = "open",
+    limit: int = 10
+) -> list:
+    """
+    List issues in a GitHub repository.
+
+    Use when the user wants to see open bugs, check pending work, or review
+    issues in a repository.
+
+    Args:
+        repo: Repository in 'owner/repo' format
+        state: Filter by issue state: 'open', 'closed', or 'all'. Default: 'open'
+        limit: Maximum number of issues to return (1–50). Default: 10
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{GITHUB_API}/repos/{repo}/issues",
+            params={"state": state, "per_page": min(limit, 50)},
+            headers={"Authorization": f"Bearer {get_token()}"}
+        )
+        resp.raise_for_status()
+        issues = resp.json()
+        return [
+            {"number": i["number"], "title": i["title"], "url": i["html_url"]}
+            for i in issues
+        ]
+
+
+@mcp.tool()
+async def search_repos(query: str, limit: int = 5) -> list:
+    """
+    Search for GitHub repositories matching a query.
+
+    Use when the user wants to find repositories by name, topic, or description.
+
+    Args:
+        query: Search keywords, e.g. 'fastapi authentication python'
+        limit: Number of results to return (1–20). Default: 5
+    """
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{GITHUB_API}/search/repositories",
+            params={"q": query, "per_page": min(limit, 20)},
+            headers={"Authorization": f"Bearer {get_token()}"}
+        )
+        resp.raise_for_status()
+        return [
+            {
+                "name": r["full_name"],
+                "description": r["description"],
+                "stars": r["stargazers_count"],
+                "url": r["html_url"]
+            }
+            for r in resp.json()["items"]
+        ]
+
+
+def get_token():
+    # In production: extract from request context (Orceum injects it)
+    return os.environ.get("GITHUB_TOKEN", "")
+
+
+if __name__ == "__main__":
+    mcp.run(transport="streamable-http", host="0.0.0.0", port=8080)
+```
+
+<Tip>
+  Write tool docstrings the same way you'd write native app action descriptions — include *when* to use the tool, not just *what* it does. Orca AI reads these to select the right tool.
+</Tip>
+
+</Step>
+
+<Step title="Deploy your MCP server">
+
+Your MCP server must be publicly accessible over HTTPS. Deploy it to any cloud provider:
+
+```bash
+# Example: deploy to Railway
+railway up
+
+# Your server URL will be something like:
+# https://github-mcp.up.railway.app/mcp
+```
+
+Confirm your server is reachable before registering:
+
+```bash
+curl https://github-mcp.up.railway.app/mcp
+```
+
+</Step>
+
+<Step title="Register with Orceum">
+
+MCP apps are registered at a different endpoint than native apps — `POST /v1/apps/mcp`. Provide your server URL, transport type, and OAuth config:
+
+```bash
+curl -X POST https://api.orceum.com/v1/apps/mcp \
+  -H "Authorization: Bearer YOUR_ORCEUM_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "GitHub Tools",
+    "description": "Create issues, list open work, and search repositories on GitHub",
+    "auth_type": "OAUTH",
+    "mcp_server_url": "https://github-mcp.up.railway.app/mcp",
+    "transport": "STREAMABLE_HTTP",
+    "config": {
+      "oauth_config": {
+        "client_id": "YOUR_GITHUB_CLIENT_ID",
+        "client_secret": "YOUR_GITHUB_CLIENT_SECRET",
+        "authorization_url": "https://github.com/login/oauth/authorize",
+        "token_url": "https://github.com/login/oauth/access_token",
+        "scopes": ["repo", "read:user"],
+        "client_redirect_uris": [
+          "https://api.orceum.com/v1/apps/APP_ID_PLACEHOLDER/oauth/callback"
+        ]
+      }
+    }
+  }'
+```
+
+From the response, note your `app_id`. Then:
+1. Replace `APP_ID_PLACEHOLDER` in `client_redirect_uris` with your real `app_id`
+2. Update `PATCH /v1/apps/{app_id}` with the corrected redirect URI
+3. Register the callback URI in your GitHub OAuth App settings
+
+</Step>
+
+<Step title="Verify tool discovery">
+
+After registration, Orceum connects to your MCP server and runs `list_tools()` to discover your tools. Check the result:
+
+```bash
+curl https://api.orceum.com/v1/apps/{app_id} \
+  -H "Authorization: Bearer YOUR_ORCEUM_TOKEN"
+```
+
+Look for `tools_discovered` in the response. If it is `0`, check that your server is publicly reachable and returning a valid tool list.
+
+<Note>
+  If your app uses OAuth, tool discovery happens after the first user installs — Orceum needs a valid token to connect to your server.
+</Note>
+
+</Step>
+
+<Step title="Test in Orca AI">
+
+Install the app as a user and try it in Orca AI:
+
+> *"Find Python web framework repositories on GitHub"*
+
+> *"Create an issue in acme/backend titled 'Fix login timeout'"*
+
+Orca AI will select the appropriate tool, call it via `call_tool(name, args)`, and present the result.
+
+</Step>
+
+</Steps>
+
+---
+
+## Updating your tools
+
+When you add or modify tools, trigger a manifest refresh so Orceum re-discovers the updated tool list:
+
+```bash
+curl -X POST https://api.orceum.com/v1/apps/{app_id}/regenerate-manifest \
+  -H "Authorization: Bearer YOUR_ORCEUM_TOKEN"
+```
+
+Orceum will reconnect to your server, call `list_tools()`, and update the manifest automatically.

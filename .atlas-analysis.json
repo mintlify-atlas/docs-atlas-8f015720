@@ -1,0 +1,98 @@
+{
+  "projectType": "saas",
+  "projectName": "Orceum",
+  "projectDescription": "A developer platform for building apps that connect AI assistants to real-world tools and services, enabling AI agents to actually do work on behalf of users.",
+  "theme": "luma",
+  "primaryColor": "#e67e22",
+  "lightColor": "#e6a873",
+  "darkColor": "#c55a3a",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Get Started",
+            "pages": [
+              "introduction",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Building Apps",
+            "pages": [
+              "building-apps/overview",
+              "building-apps/manifest",
+              "building-apps/authentication",
+              "building-apps/registering",
+              "building-apps/installation",
+              "building-apps/handling-actions",
+              "building-apps/error-handling",
+              "building-apps/webhooks",
+              "building-apps/lifecycle-webhooks",
+              "building-apps/mcp-apps"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/oauth",
+              "configuration/app-config",
+              "configuration/ai-summary",
+              "configuration/marketplace"
+            ]
+          },
+          {
+            "group": "Concepts & Security",
+            "pages": [
+              "concepts/rate-limiting",
+              "concepts/security"
+            ]
+          },
+          {
+            "group": "Guides",
+            "pages": [
+              "guides/native-app",
+              "guides/mcp-app",
+              "guides/troubleshooting",
+              "glossary"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "API Reference",
+            "pages": [
+              "api-reference/events"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Native app integration via HTTPS POST — connect any HTTP API to AI agents",
+    "MCP (Model Context Protocol) app support for standardized tool-calling",
+    "Managed OAuth 2.0 flow with automatic token refresh and revocation",
+    "API key authentication with encrypted per-user credential storage",
+    "Webhook event push — apps can proactively notify users via Orca AI",
+    "Lifecycle webhooks for install/uninstall events",
+    "App manifest system for describing actions and parameters to the AI",
+    "Marketplace listing and distribution for third-party apps",
+    "Bouncer AI for intelligent event routing and digest batching",
+    "Role-based proactive task scheduling — AI runs responsibilities on a schedule"
+  ],
+  "publicApiSurface": [
+    "POST /v1/apps/ — Register a new app",
+    "POST /v1/apps/{app_id}/install — Install an app as a user",
+    "POST /v1/apps/installations/{installation_id}/api-key — Submit API key for installation",
+    "POST /v1/apps/{app_id}/events — Push an event into Orca AI",
+    "GET /v1/apps/{app_id}/events/verify — Verify webhook endpoint configuration",
+    "GET /v1/apps/{app_id}/oauth/callback — OAuth 2.0 callback URL",
+    "Action call format: POST {app_url} with { event, event_data, timestamp }",
+    "Lifecycle webhook: POST {installation_webhook_url} with INSTALLED/UNINSTALLED events"
+  ]
+}

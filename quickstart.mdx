@@ -1,80 +1,160 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: "Get started with Orceum"
+description: "Build and register a working Orceum app in under 10 minutes. This guide walks through a simple Todo Manager with API key auth and three actions."
 ---
 
-## Get started in three steps
+This guide walks you through building a minimal Orceum app from scratch. You'll write an HTTP endpoint, register it with the platform, install it as a user, and verify it works end-to-end. The example is a **Todo Manager** — a Native HTTP app with API key auth and three actions: `todo.create`, `todo.list`, and `todo.complete`.
 
-Get your documentation site running locally and make your first customization.
+<Steps>
+  <Step title="Write your endpoint">
+    Create a single HTTP endpoint. Orceum will `POST` to it with `{ event, event_data, timestamp }`.
 
-### Step 1: Set up your local environment
+    ```python app.py
+    from fastapi import FastAPI, Header
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
+    app = FastAPI()
+    todos = {}
 
-### Step 2: Deploy your changes
+    @app.post("/orceum/actions")
+    async def handle(
+        request,
+        x_orceum_installation_id: str = Header(...),
+    ):
+        body = await request.json()
+        event = body["event"]
+        params = body["event_data"]
 
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
+        if event == "todo.create":
+            tid = str(len(todos) + 1)
+            todos[tid] = {"id": tid, "title": params["title"], "done": False}
+            return {"status": "success", "data": {"todo_id": tid}}
 
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
+        if event == "todo.list":
+            return {"status": "success", "data": {"todos": list(todos.values())}}
 
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
+        if event == "todo.complete":
+            todo = todos.get(params["todo_id"])
+            if not todo:
+                return {"status": "error", "error": {"message": "Not found"}}
+            todo["done"] = True
+            return {"status": "success", "data": {"message": f"Done: {todo['title']}"}}
 
-### Step 3: Go live
+        return {"status": "error", "error": {"message": f"Unknown event: {event}"}}
+    ```
 
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
+    <Note>
+    `X-Orceum-Installation-Id` is sent on **every** call. Use it to identify which user triggered the action.
+    </Note>
+  </Step>
 
-## Next steps
+  <Step title="Register your app">
+    Make a single API call to register your endpoint, auth config, and manifest. Orceum uses the manifest descriptions to understand what your app can do — the AI reads them to decide when and how to call you.
 
-Now that you have your docs running, explore these key features:
+    ```bash
+    curl -X POST https://api.orceum.com/v1/apps/ \
+      -H "Authorization: Bearer YOUR_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{
+        "name": "Todo Manager",
+        "description": "Create, list, and manage todo items",
+        "version": "1.0.0",
+        "app_url": "https://your-app.example.com/orceum/actions",
+        "auth_type": "API_KEY",
+        "manifest": {
+          "actions": [
+            {
+              "event": "todo.create",
+              "description": "Create a new todo item for the user",
+              "parameters": [
+                { "name": "title", "type": "string", "description": "The todo title", "required": true }
+              ]
+            },
+            {
+              "event": "todo.list",
+              "description": "List all todo items for the user",
+              "parameters": []
+            },
+            {
+              "event": "todo.complete",
+              "description": "Mark a todo item as complete",
+              "parameters": [
+                { "name": "todo_id", "type": "string", "description": "ID of the todo to complete", "required": true }
+              ]
+            }
+          ]
+        },
+        "config": {
+          "auth_config": {
+            "auth_header_key": "X-API-Key",
+            "authentication_scheme": ""
+          }
+        }
+      }'
+    ```
+
+    You'll get back an `app_id`. Save it — you'll need it in the next step.
+  </Step>
+
+  <Step title="Install the app as a user">
+    Install the app against a user account:
+
+    ```bash
+    curl -X POST https://api.orceum.com/v1/apps/{app_id}/install \
+      -H "Authorization: Bearer USER_TOKEN"
+    ```
+
+    Because `auth_type` is `API_KEY`, Orceum returns `next_action: "COLLECT_API_KEY"`. Submit the key using the `installation_id` from the response:
+
+    ```bash
+    curl -X POST https://api.orceum.com/v1/apps/installations/{installation_id}/api-key \
+      -H "Authorization: Bearer USER_TOKEN" \
+      -H "Content-Type: application/json" \
+      -d '{ "api_key": "my-secret-key" }'
+    ```
+
+    Orceum encrypts the key and injects it into every future call to your endpoint.
+  </Step>
+
+  <Step title="Test it">
+    Say to Orceum: **"Create a todo: Buy groceries"**
+
+    Orceum calls your endpoint:
+
+    ```json
+    POST /orceum/actions
+    X-Orceum-Installation-Id: f47ac10b-...
+    X-API-Key: my-secret-key
+
+    {
+      "event": "todo.create",
+      "event_data": { "title": "Buy groceries" },
+      "timestamp": "2026-04-15T10:30:00.000000+00:00"
+    }
+    ```
+
+    Your app returns:
+
+    ```json
+    { "status": "success", "data": { "todo_id": "1" } }
+    ```
+
+    The AI tells the user: *"Done! Created your todo: Buy groceries (ID: 1)"*
+  </Step>
+</Steps>
+
+## What's next
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="The manifest" icon="list" href="/building-apps/manifest">
+    Learn how to write descriptions the AI uses correctly
+  </Card>
+  <Card title="Authentication" icon="lock" href="/building-apps/authentication">
+    API key, OAuth 2.0, and no-auth options
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/building-apps/webhooks">
+    Push events from your app to Orceum
+  </Card>
+  <Card title="MCP apps" icon="server" href="/building-apps/mcp-apps">
+    Build with the Model Context Protocol
+  </Card>
 </CardGroup>
-
-<Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
-</Note>

@@ -1,0 +1,152 @@
+---
+title: "API Reference: Events Endpoints for Orceum Apps"
+description: "Push real-time events into Orca AI's pipeline and verify your webhook setup using the Orceum Events API, authenticated with HMAC signatures."
+---
+
+The Events API lets your app push real-time notifications into Orca AI's conversation pipeline and verify that your webhook integration is configured correctly. These endpoints are called by your app — not by end users. Authentication uses your app's `whs_*` webhook secret combined with an HMAC-SHA256 signature.
+
+**Base URL:** `https://api.orceum.com/v1`
+
+---
+
+## POST /apps/{app_id}/events
+
+Push a real-time event into Orca AI's conversation pipeline for a specific user's installation. Orceum's Bouncer component evaluates the event and decides how to route it — immediately notifying the user, starting a conversation, queuing for digest delivery, or ignoring it based on priority and user preferences.
+
+### Required headers
+
+| Header | Value |
+|--------|-------|
+| `Content-Type` | `application/json` |
+| `X-Orceum-Webhook-Secret` | Your `whs_*` secret |
+| `X-Hub-Signature-256` | `sha256=<hmac_hex>` — HMAC-SHA256 of the compact request body |
+| `X-Timestamp` | ISO 8601 UTC timestamp |
+
+### Request body
+
+<ParamField body="installation_id" type="string" required>
+  The Orceum installation ID of the user to notify. Obtained from the `INSTALLED` lifecycle webhook payload.
+</ParamField>
+
+<ParamField body="event_type" type="string" required>
+  Dot-separated event descriptor using `noun.verb` format — e.g. `task.completed`, `payment.failed`, `export.ready`.
+</ParamField>
+
+<ParamField body="event_data" type="object" required>
+  Payload with all relevant context. Orca AI uses this to compose the message to the user. Be specific — include IDs, titles, URLs, and any details the user would want to see.
+</ParamField>
+
+<ParamField body="timestamp" type="string" required>
+  ISO 8601 UTC timestamp of when the event occurred, e.g. `2024-01-15T12:00:00Z`.
+</ParamField>
+
+<ParamField body="priority" type="string" default="normal">
+  Event urgency. Controls how the Bouncer routes the event.
+
+  | Value | Behavior |
+  |-------|----------|
+  | `low` | May be batched into digest delivery |
+  | `normal` | Standard delivery |
+  | `high` | Prioritized, less likely to be deferred |
+  | `critical` | Immediate delivery regardless of user settings |
+</ParamField>
+
+<ParamField body="metadata" type="object">
+  Optional key-value pairs for your own tracking and debugging. Not shown to users.
+</ParamField>
+
+### Example request
+
+```bash
+curl -X POST https://api.orceum.com/v1/apps/{app_id}/events \
+  -H "Content-Type: application/json" \
+  -H "X-Orceum-Webhook-Secret: whs_your_secret" \
+  -H "X-Hub-Signature-256: sha256=abc123def456..." \
+  -H "X-Timestamp: 2024-01-15T12:00:00Z" \
+  -d '{
+    "installation_id": "inst_abc123",
+    "event_type": "task.completed",
+    "event_data": {
+      "task_id": "task_789",
+      "title": "Send Q4 report",
+      "completed_at": "2024-01-15T12:00:00Z"
+    },
+    "timestamp": "2024-01-15T12:00:00Z",
+    "priority": "normal"
+  }'
+```
+
+### Response 200
+
+```json
+{
+  "event_id": "evt_abc123",
+  "status": "QUEUED",
+  "action_taken": "CONVERSATION_STARTED"
+}
+```
+
+<ResponseField name="event_id" type="string">
+  Unique ID for this event. Use for debugging and support requests.
+</ResponseField>
+
+<ResponseField name="status" type="string">
+  Current processing status of the event: `QUEUED`, `PROCESSING`, `PROCESSED`, `IGNORED`, or `DEFERRED`.
+</ResponseField>
+
+<ResponseField name="action_taken" type="string">
+  What Orceum did with the event after the Bouncer evaluated it.
+
+  | Value | Meaning |
+  |-------|---------|
+  | `NOTIFIED` | Push notification sent, no new conversation opened |
+  | `CONVERSATION_STARTED` | New conversation opened with event context |
+  | `QUEUED` | Queued for digest delivery |
+  | `IGNORED` | Filtered out due to low priority, quiet hours, or Bouncer decision |
+</ResponseField>
+
+### Error responses
+
+| Status | Cause |
+|--------|-------|
+| `401` | Invalid or missing `X-Hub-Signature-256` signature |
+| `404` | `installation_id` not found or installation not active |
+| `422` | Invalid request body — missing required fields or wrong types |
+| `429` | Rate limit exceeded |
+
+<Warning>
+  If you receive `404`, confirm the `installation_id` comes from the `INSTALLED` lifecycle webhook and that the installation status is `ACTIVE`. Uninstalled or pending installations will not receive events.
+</Warning>
+
+---
+
+## GET /apps/{app_id}/events/verify
+
+Check that your webhook endpoint is configured and reachable. Use this after initial setup or after changing your webhook URL.
+
+**Headers:** `Authorization: Bearer YOUR_ORCEUM_TOKEN`
+
+### Example request
+
+```bash
+curl https://api.orceum.com/v1/apps/{app_id}/events/verify \
+  -H "Authorization: Bearer YOUR_ORCEUM_TOKEN"
+```
+
+### Response 200
+
+```json
+{
+  "reachable": true,
+  "events_enabled": true,
+  "webhook_url": "https://todo.yourapp.com/webhooks/orceum",
+  "last_event_at": "2024-01-15T11:55:00Z",
+  "last_event_id": "evt_xyz456"
+}
+```
+
+If `reachable` is `false` or `events_enabled` is `false`, check that `config.webhook_config.events_enabled` is set to `true` in your app registration and that the webhook URL is publicly accessible over HTTPS.
+
+<Tip>
+  Run this endpoint after deploying a new version of your app or after updating `mcp_server_url` or `installation_webhook_url` to confirm Orceum can still reach your endpoints.
+</Tip>

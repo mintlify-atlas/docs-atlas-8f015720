@@ -1,0 +1,160 @@
+---
+title: "Security Model and Best Practices for Orceum Apps"
+description: "How Orceum protects user credentials with Fernet encryption, verifies identity with HMAC signatures, and what security responsibilities fall to your app."
+---
+
+Orceum is built on the assumption that apps handle sensitive user credentials and data. This page explains what Orceum handles on your behalf and the responsibilities that fall to you as an app developer.
+
+## What Orceum handles
+
+| Concern | Orceum's role |
+|---------|--------------|
+| Credential storage | Encrypts API keys and OAuth tokens at rest using Fernet symmetric encryption |
+| Token refresh | Automatically refreshes OAuth tokens before expiry |
+| Token revocation | Calls your `revoke_url` on uninstall |
+| HTTPS enforcement | All Orceum API endpoints are HTTPS-only |
+| Signature verification | Verifies HMAC signatures on events you push |
+| Installation isolation | Each user gets a separate `installation_id` — credentials are never shared |
+
+---
+
+## What you're responsible for
+
+### Verify webhook signatures
+
+Always verify the `X-Orceum-Signature` header on lifecycle webhooks. Use constant-time comparison to prevent timing attacks:
+
+```python
+import hmac
+import hashlib
+
+def verify_signature(body: bytes, signature_header: str, secret: str) -> bool:
+    if not signature_header.startswith("sha256="):
+        return False
+    provided = signature_header[len("sha256="):]
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(provided, expected)
+```
+
+<Warning>
+  Never use `==` for signature comparison — it is vulnerable to timing attacks. Always use `hmac.compare_digest`.
+</Warning>
+
+### Sign events you push
+
+All events pushed to Orceum must be HMAC-signed. See [Webhooks → Signing Requests](/building-apps/webhooks#signing-requests-hmac).
+
+### Use `X-Orceum-Installation-Id` for user isolation
+
+Every action call includes `X-Orceum-Installation-Id`. Use it to look up the correct user in your database. Never treat all requests as coming from the same user account:
+
+```python
+@app.post("/actions")
+async def handle_action(
+    request: Request,
+    x_orceum_installation_id: str = Header(...)
+):
+    user = await db.get_user_by_installation(x_orceum_installation_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found for this installation")
+    # proceed with user-scoped operation
+```
+
+### Protect your secrets
+
+| Secret | Where to store it |
+|--------|------------------|
+| `orc_*` (lifecycle webhook secret) | Secrets manager (AWS Secrets Manager, GCP Secret Manager, Vault) |
+| `whs_*` (event signing secret) | Secrets manager |
+| OAuth `client_secret` | Secrets manager or environment variable — never in code |
+
+Never commit secrets to source control. Rotate them immediately if accidentally exposed.
+
+### Implement least-privilege OAuth scopes
+
+Request only the exact scopes your app needs. Users see the requested scopes on the consent screen — over-requesting scopes reduces trust and installs:
+
+```json
+// Bad — too broad
+"scopes": ["admin", "full_access"]
+
+// Good — minimal and explicit
+"scopes": ["tasks:read", "tasks:write", "user:profile:read"]
+```
+
+### Validate all inputs
+
+Even though Orca AI constructs action parameters from your manifest, always validate inputs server-side. Never trust `event_data` without validation:
+
+```python
+from pydantic import BaseModel, validator
+from datetime import date
+
+class CreateTaskInput(BaseModel):
+    title: str
+    due_date: date | None = None
+
+    @validator("title")
+    def title_not_empty(cls, v):
+        if not v.strip():
+            raise ValueError("Title cannot be empty")
+        return v.strip()
+```
+
+### Use HTTPS only
+
+Your `base_url` and webhook URLs must be HTTPS. Orceum will refuse to call HTTP endpoints in production.
+
+### Handle requests idempotently
+
+Orceum may retry requests on `429` and after a `401` token refresh. Use `X-Request-ID` as a deduplication key:
+
+```python
+@app.post("/actions")
+async def handle_action(request: Request, x_request_id: str = Header(...)):
+    if await redis.exists(f"req:{x_request_id}"):
+        return await redis.get(f"req:{x_request_id}")
+    result = await process_action(request)
+    await redis.setex(f"req:{x_request_id}", 300, result)
+    return result
+```
+
+### Return appropriate status codes
+
+Return meaningful HTTP status codes — Orceum's retry and re-auth logic depends on them:
+
+| Status | Meaning | Orceum behavior |
+|--------|---------|----------------|
+| `200` | Success | Return result to user |
+| `400` | Bad input | Fail immediately — no retry |
+| `401` | Auth failure | Trigger re-auth or token refresh flow |
+| `429` | Rate limited | Retry with exponential backoff |
+| `500` | Server error | Fail immediately — no retry |
+
+### Rotate secrets periodically
+
+Rotate `whs_*` and your OAuth `client_secret` on a regular schedule. Update them in Orceum via `PATCH /v1/apps/{app_id}` immediately after rotation to avoid a gap in service.
+
+---
+
+## Two-secrets reference
+
+A common point of confusion for new developers: Orceum uses two distinct secrets for two distinct directions of communication.
+
+| Secret | Prefix | Who creates it | Who stores it | Used for |
+|--------|--------|---------------|---------------|----------|
+| `orc_*` | `orc_` | Orceum (returned at registration) | You | Verify lifecycle webhooks Orceum sends to your `installation_webhook_url`. Header: `X-Orceum-Signature: sha256=...` |
+| `whs_*` | `whs_` | You (set in `webhook_config.webhook_secret`) | Orceum | Sign events you push to Orceum. Header: `X-Hub-Signature-256: sha256=...` |
+
+### Signature format differences
+
+| Direction | Header | Value format |
+|-----------|--------|-------------|
+| Orceum → your app | `X-Orceum-Signature` | `sha256=<raw_hex>` |
+| Your app → Orceum | `X-Hub-Signature-256` | `sha256=<raw_hex>` |
+
+In both cases, the HMAC is **raw hex** with a `sha256=` prefix in the header value.
+
+<Note>
+  The `orc_*` secret is shown only once at registration. Store it in a secrets manager immediately — it cannot be retrieved again.
+</Note>

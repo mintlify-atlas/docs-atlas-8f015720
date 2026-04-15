@@ -1,0 +1,117 @@
+---
+title: "Publishing and Managing Your App in the Marketplace"
+description: "Understand app status lifecycle, how users search and install apps, how to optimize for discovery, and how to manage your listing with the Orceum API."
+---
+
+The Orceum marketplace is where users discover, evaluate, and install apps. Your app's status controls whether it appears there, and your `description` and `app_summary` fields drive how it ranks in search results. This page covers the full status lifecycle, the search API, discovery optimization, and the management endpoints available to you.
+
+## App status lifecycle
+
+Every app starts in `PENDING` immediately after registration. Status transitions follow this path:
+
+```
+PENDING → ACTIVE → SUSPENDED / ARCHIVED
+```
+
+| Status | Visible in marketplace | Installable | Description |
+|---|---|---|---|
+| `PENDING` | No | Internal only | Just registered, not yet reviewed |
+| `ACTIVE` | Yes | Yes | Published and available to all users |
+| `SUSPENDED` | No | No | Temporarily disabled by a platform admin |
+| `ARCHIVED` | No | No | Permanently removed from the marketplace |
+
+<Note>
+  Status transitions are managed through the Orceum developer dashboard. Contact support to request publication of your app once it is ready.
+</Note>
+
+## Searching the marketplace
+
+Users and clients can search all published apps using the marketplace search endpoint:
+
+```bash
+curl "https://api.orceum.com/v1/apps/marketplace/search?q=todo&limit=20" \
+  -H "Authorization: Bearer USER_ORCEUM_TOKEN"
+```
+
+### Query parameters
+
+| Parameter | Type | Description |
+|---|---|---|
+| `q` | string | Search query — matched against `name`, `description`, and `app_summary` |
+| `app_type` | string | Filter by `NATIVE` or `MCP` |
+| `auth_type` | string | Filter by `NONE`, `API_KEY`, or `OAUTH` |
+| `limit` | integer | Results per page (default: 20, max: 100) |
+| `offset` | integer | Pagination offset |
+
+### Response
+
+```json
+{
+  "apps": [
+    {
+      "app_id": "app_a1b2c3d4",
+      "name": "Todo Manager",
+      "description": "Manage tasks and reminders with natural language",
+      "app_type": "NATIVE",
+      "auth_type": "API_KEY",
+      "status": "ACTIVE",
+      "install_count": 1247,
+      "created_at": "2024-01-01T00:00:00Z"
+    }
+  ],
+  "total": 1,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+## App stats
+
+Retrieve aggregated statistics for your published app to track adoption and usage:
+
+```bash
+curl "https://api.orceum.com/v1/apps/marketplace/stats/{app_id}" \
+  -H "Authorization: Bearer YOUR_ORCEUM_TOKEN"
+```
+
+```json
+{
+  "app_id": "app_a1b2c3d4",
+  "active_installs": 1247,
+  "total_installs": 1580,
+  "uninstalls_last_30d": 34,
+  "action_calls_last_30d": 18920
+}
+```
+
+## Optimizing for discovery
+
+Orceum's marketplace search considers `description`, `app_summary`, and action names when ranking results. To rank well:
+
+<Steps>
+  <Step title="Use specific keywords in your description">
+    Include tool names, task types, and service names users are likely to search for. Keep `description` under 200 characters — truncated descriptions perform worse in rankings.
+  </Step>
+  <Step title="Write a clear app_summary">
+    The AI uses `app_summary` for semantic matching. Describe what entities your app manages and the situations where it should be used. See [AI Discoverability](/configuration/ai-summary) for detailed guidance.
+  </Step>
+  <Step title="Name and describe your actions precisely">
+    Each action that surfaces in search results adds keyword coverage. Distinct, descriptive action names and descriptions increase the chance your app matches a user's query.
+  </Step>
+</Steps>
+
+## Managing your app
+
+Use these endpoints to update metadata, inspect your apps, or remove a listing:
+
+| Operation | Endpoint |
+|---|---|
+| Update metadata | `PATCH /v1/apps/{app_id}` |
+| View all your apps | `GET /v1/apps/` |
+| Get a specific app | `GET /v1/apps/{app_id}` |
+| Delete an app | `DELETE /v1/apps/{app_id}` |
+| Regenerate MCP manifest | `POST /v1/apps/{app_id}/regenerate-manifest` |
+
+<Warning>
+  Deleting an app immediately removes it from the marketplace and terminates all active installations. Users lose access with no warning. Use the Archive option in the dashboard instead of delete if there is any chance you will restore the app later.
+</Warning>

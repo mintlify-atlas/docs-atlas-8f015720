@@ -1,97 +1,72 @@
 ---
-title: "Introduction"
-description: "Welcome to the new home for your documentation"
+title: "Orceum Developer Platform"
+description: "Build apps that connect AI assistants to real-world tools. Orceum is the OS for AI agents — your app gives the assistant hands to act on behalf of users."
 ---
 
-## Setting up
+Orceum is a platform where AI assistants don't just chat — they act. When a user says *"draft a reply to that investor email"* or *"create a ticket for that bug"*, Orceum calls your app to make it happen. Think of it as iOS for AI agents: Orceum provides the runtime, permissions, and scheduling; your app provides the capability.
 
-Get your documentation site up and running in minutes.
-
-<Card
-  title="Start here"
-  icon="rocket"
-  href="/quickstart"
-  horizontal
->
-  Follow our three step quickstart guide.
-</Card>
-
-## Make it yours
-
-Design a docs site that looks great and empowers your users.
-
-<Columns cols={2}>
-  <Card
-    title="Edit locally"
-    icon="pen-to-square"
-    href="/development"
-  >
-    Edit your docs locally and preview them in real time.
+<CardGroup cols={2}>
+  <Card title="Introduction" icon="lightbulb" href="/introduction">
+    Understand how Orceum works and where your app fits in the platform
   </Card>
-  <Card
-    title="Customize your site"
-    icon="palette"
-    href="/essentials/settings"
-  >
-    Customize the design and colors of your site to match your brand.
+  <Card title="Quick Start" icon="bolt" href="/quickstart">
+    Build and register your first Orceum app in under 10 minutes
   </Card>
-    <Card
-    title="Set up navigation"
-    icon="map"
-    href="/essentials/navigation"
-  >
-    Organize your docs to help users find what they need and succeed with your product.
+  <Card title="App Architecture" icon="grid-2" href="/building-apps/overview">
+    Learn about Native and MCP app types, manifests, and the installation lifecycle
   </Card>
-  <Card
-    title="API documentation"
-    icon="terminal"
-    href="/api-reference/introduction"
-  >
-    Auto-generate API documentation from OpenAPI specifications.
+  <Card title="API Reference" icon="code" href="/api-reference/events">
+    Push events into Orca AI and verify your webhook setup
   </Card>
-</Columns>
+</CardGroup>
 
-## Create beautiful pages
+## Build an app in four steps
 
-Everything you need to create world-class documentation.
+<Steps>
+  <Step title="Write your endpoint">
+    Create an HTTP endpoint that accepts `POST` requests from Orceum. The payload contains `event`, `event_data`, and `timestamp`. Execute the action and return a JSON result.
+  </Step>
+  <Step title="Define your manifest">
+    Write a manifest describing your app's actions and parameters. The AI reads your descriptions to decide when and how to call you — clear descriptions are critical.
+  </Step>
+  <Step title="Register with Orceum">
+    Make a single API call to register your app: endpoint URL, auth config, and manifest. You'll get back an `app_id`.
+  </Step>
+  <Step title="Handle calls and push events">
+    Orceum calls your endpoint when the AI picks your action. Optionally, push events back to Orceum when something happens on your side — new email, completed task, payment failed.
+  </Step>
+</Steps>
 
-<Columns cols={2}>
-  <Card
-    title="Write with MDX"
-    icon="pen-fancy"
-    href="/essentials/markdown"
-  >
-    Use MDX to style your docs pages.
-  </Card>
-  <Card
-    title="Code samples"
-    icon="code"
-    href="/essentials/code"
-  >
-    Add sample code to demonstrate how to use your product.
-  </Card>
-  <Card
-    title="Images"
-    icon="image"
-    href="/essentials/images"
-  >
-    Display images and other media.
-  </Card>
-  <Card
-    title="Reusable snippets"
-    icon="recycle"
-    href="/essentials/reusable-snippets"
-  >
-    Write once and reuse across your docs.
-  </Card>
-</Columns>
+## Choose your app type
 
-## Need inspiration?
+<CardGroup cols={2}>
+  <Card title="Native App" icon="globe" href="/building-apps/overview">
+    Standard HTTPS POST integration. Works with any backend: Express, FastAPI, Rails, Lambda, anything with an HTTP endpoint.
+  </Card>
+  <Card title="MCP App" icon="server" href="/building-apps/mcp-apps">
+    Build on the Model Context Protocol. Orceum auto-discovers your tools and calls them using the standard MCP tool-calling spec.
+  </Card>
+</CardGroup>
 
-<Card
-  title="See complete examples"
-  icon="stars"
-  href="https://mintlify.com/customers"
->
-  Browse our showcase of exceptional documentation sites.
-</Card>
+## Key topics
+
+<CardGroup cols={3}>
+  <Card title="Manifest" icon="list" href="/building-apps/manifest">
+    Write action descriptions the AI understands
+  </Card>
+  <Card title="Authentication" icon="lock" href="/building-apps/authentication">
+    API key, OAuth 2.0, or no-auth options
+  </Card>
+  <Card title="Webhooks" icon="webhook" href="/building-apps/webhooks">
+    Push real-time events into Orca AI
+  </Card>
+  <Card title="OAuth Setup" icon="key" href="/configuration/oauth">
+    Full OAuth 2.0 with PKCE and auto-refresh
+  </Card>
+  <Card title="Rate Limits" icon="gauge" href="/concepts/rate-limiting">
+    Understand and work within API limits
+  </Card>
+  <Card title="Troubleshooting" icon="wrench" href="/guides/troubleshooting">
+    Debug common integration issues
+  </Card>
+</CardGroup>
